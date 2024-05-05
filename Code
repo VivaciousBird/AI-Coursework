@@ -1,0 +1,130 @@
+% u2655935-Dixit Prajapati AI and Machine learning coursework.
+% Coursework (Jellyfish)
+clc
+clear
+close all
+
+digitDatasetPath = fullfile(pwd, 'Jelly');
+imds = imageDatastore(digitDatasetPath, 'IncludeSubfolders', true, 'LabelSource','foldernames');
+ 
+% Count the number of images in each class
+labelCount = countEachLabel(imds);
+ 
+% Display the result in a table
+disp(labelCount);
+ 
+% Read a single image
+sampleImage = readimage(imds, 1);
+ 
+% Display the dimensions
+disp(['Image dimensions: ' num2str(size(sampleImage))]);
+ 
+% Resize the sample image to 224x224x3
+resizedImage = imresize(sampleImage, [224, 224]);
+ 
+% Display the dimensions of the resized image
+disp(['Resized Image dimensions: ' num2str(size(resizedImage))]);
+ 
+% Display the original and resized images
+figure;
+subplot(1, 2, 1);
+imshow(sampleImage);
+title('Original Image');
+ 
+subplot(1, 2, 2);
+imshow(resizedImage);
+title('Resized Image (224x224x3)');
+ 
+[imdsTrain, imdsValidation, imdsTesting] = ...
+    splitEachLabel(imds, 0.7, 0.15, 0.15, 'randomized');
+ 
+numTrainImages = numel(imdsTrain.Labels);
+idx = randperm(numTrainImages,16);
+figure
+for i = 1:16
+subplot(4,4,i)
+I = readimage(imdsTrain,idx(i));
+imshow(I)
+end
+ 
+net = alexnet;
+analyzeNetwork(net);
+ 
+inputSize = net.Layers(1).InputSize;
+ 
+% Display information about the first convolutional layer (conv1)
+conv1 = net.Layers(2);  % Conv1 is the second layer in AlexNet
+ 
+% Extract and display relevant information
+filterSize = conv1.FilterSize;
+numFilters = conv1.NumFilters;
+stride = conv1.Stride;
+padding = conv1.PaddingSize;
+ 
+% Display the information
+disp(['Filter Size: ' num2str(filterSize)]);
+disp(['Number of Filters: ' num2str(numFilters)]);
+disp(['Stride: ' num2str(stride)]);
+disp(['Padding: ' num2str(padding)]);
+ 
+ 
+%outputSize = (inputSize(1:2) - filterSize + 2 * padding) / stride + 1;
+%disp(['Output Image Size: ' num2str(outputSize)]);
+ 
+% inputSize from previous code
+numChannels = inputSize(3);
+ 
+% Calculate the number of parameters
+numParameters = (filterSize * numChannels + 1) * conv1.NumFilters;
+ 
+% Display the result
+disp(['Number of Parameters in Conv1: ' num2str(numParameters)]);
+ 
+layersTransfer = net.Layers(1:end-3);
+ 
+numClasses = numel(categories(imdsTrain.Labels));
+ 
+layers = [  
+layersTransfer
+fullyConnectedLayer(numClasses,'WeightLearnRateFactor',20, 'BiasLearnRateFactor',20)
+softmaxLayer
+classificationLayer];
+ 
+pixelRange = [-30 30];
+imageAugmenter = imageDataAugmenter( ...
+'RandXReflection',true, ...
+'RandXTranslation',pixelRange, ...
+'RandYTranslation',pixelRange);
+augimdsTrain = augmentedImageDatastore(inputSize(1:2),imdsTrain, ...
+'DataAugmentation',imageAugmenter);
+ 
+augimdsValidation = augmentedImageDatastore(inputSize(1:2),imdsValidation);
+ 
+options = trainingOptions('sgdm', ...
+'MiniBatchSize',10, ...
+'MaxEpochs',6, ...
+'InitialLearnRate',1e-4, ...
+'Shuffle','every-epoch', ...
+'ValidationData',augimdsValidation, ...
+'ValidationFrequency',3, ...
+'Verbose',false, ...
+'Plots','training-progress');
+ 
+netTransfer = trainNetwork(augimdsTrain,layers,options);
+ 
+[YPred,scores] = classify(netTransfer,augimdsValidation);
+ 
+idx = randperm(numel(imdsValidation.Files),4);
+figure
+for i = 1:4
+subplot(2,2,i)
+I = readimage(imdsValidation,idx(i));
+imshow(I)
+label = YPred(idx(i));
+title(string(label));
+end
+ 
+YValidation = imdsValidation.Labels;
+accuracy = mean(YPred == YValidation);
+ 
+plotconfusion(YValidation,YPred)
